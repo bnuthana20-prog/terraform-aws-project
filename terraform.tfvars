@@ -1,0 +1,5 @@
+aws_region   = "ap-south-1"
+instance_type = "t3.micro"
+key_name      = "nuthana_credential"
+ami_id        = "ami-02d26659fd82cf299"
+project_name  = "MyFirstTerraformEC2"

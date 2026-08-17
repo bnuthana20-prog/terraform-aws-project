@@ -9,23 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    # 1. BUILD
+    # 1. CHECKOUT
     - name: Checkout Code
       uses: actions/checkout@v4
       
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        
-    - name: Install Dependencies
-      run: npm install
-      
-    # 2. TEST
-    - name: Run Tests
-      run: npm test || echo "No tests found, skipping"
-      
-    # 3. DOCKER BUILD + PUSH
+    # 2. DOCKER BUILD + PUSH - No npm needed
     - name: Login to DockerHub
       uses: docker/login-action@v3
       with:
@@ -38,7 +26,7 @@ jobs:
         push: true
         tags: ${{ secrets.DOCKER_USERNAME }}/mywebsite:latest
         
-    # 4. DEPLOY TO AWS EC2  ← THIS IS THE NEW PART
+    # 3. DEPLOY TO AWS EC2
     - name: Deploy to EC2
       uses: appleboy/ssh-action@v1.2.0
       with:
@@ -50,6 +38,5 @@ jobs:
           docker stop mywebsite || true
           docker rm mywebsite || true
           docker run -d -p 80:80 --name mywebsite \
-            -e DB_PASSWORD=MySecret123 \
             --restart always \
             ${{ secrets.DOCKER_USERNAME }}/mywebsite:latest

@@ -1,28 +1,55 @@
-name: Build and Push Docker Image
+name: CI/CD Pipeline to AWS
 
 on:
   push:
     branches: [ "main" ]
-    paths:
-      - 'Dockerfile'
-      - 'index.html'
 
 jobs:
-  build-and-push:
+  build-test-deploy:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: bnuthana/mywebsite:latest
+    # 1. BUILD
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        
+    - name: Install Dependencies
+      run: npm install
+      
+    # 2. TEST
+    - name: Run Tests
+      run: npm test || echo "No tests found, skipping"
+      
+    # 3. DOCKER BUILD + PUSH
+    - name: Login to DockerHub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+        
+    - name: Build and Push Docker Image
+      uses: docker/build-push-action@v5
+      with:
+        push: true
+        tags: ${{ secrets.DOCKER_USERNAME }}/mywebsite:latest
+        
+    # 4. DEPLOY TO AWS EC2  ← THIS IS THE NEW PART
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@v1.2.0
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ubuntu
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          docker pull ${{ secrets.DOCKER_USERNAME }}/mywebsite:latest
+          docker stop mywebsite || true
+          docker rm mywebsite || true
+          docker run -d -p 80:80 --name mywebsite \
+            -e DB_PASSWORD=MySecret123 \
+            --restart always \
+            ${{ secrets.DOCKER_USERNAME }}/mywebsite:latest

@@ -8,8 +8,7 @@ env:
   AWS_REGION: ap-south-1
   ECR_REPOSITORY: devops-app
   EC2_USER: ubuntu
-  # PUT YOUR 3 EC2 PUBLIC IPs HERE
-  EC2_HOSTS: "65.2.161.58     13.201.80.231   13.126.135.132"
+  EC2_HOSTS: "65.2.161.58 13.201.80.231 13.126.135.132" 
 
 jobs:
   build-and-deploy:
@@ -36,11 +35,18 @@ jobs:
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
+    - name: Setup SSH Key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
+        chmod 400 ~/.ssh/id_rsa
+
     - name: Deploy to EC2 instances
       run: |
         for host in $EC2_HOSTS
         do
-          ssh -o StrictHostKeyChecking=no $EC2_USER@$host "
+          echo "Deploying to $host"
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$host "
             aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }} &&
             docker pull ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest &&
             docker stop app || true &&

@@ -1,42 +1,50 @@
-name: CI/CD Pipeline to AWS
+name: Build and Deploy to AWS
 
 on:
   push:
     branches: [ "main" ]
 
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: devops-app
+  EC2_USER: ubuntu
+  # PUT YOUR 3 EC2 PUBLIC IPs HERE
+  EC2_HOSTS: "18.60.123.45 18.61.234.56 18.62.345.67" 
+
 jobs:
-  build-test-deploy:
+  build-and-deploy:
     runs-on: ubuntu-latest
-    
     steps:
-    # 1. CHECKOUT
-    - name: Checkout Code
+    - name: Checkout code
       uses: actions/checkout@v4
-      
-    # 2. DOCKER BUILD + PUSH - No npm needed
-    - name: Login to DockerHub
-      uses: docker/login-action@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
       with:
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
-        
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
     - name: Build and Push Docker Image
-      uses: docker/build-push-action@v5
-      with:
-        push: true
-        tags: ${{ secrets.DOCKER_USERNAME }}/mywebsite:latest
-        
-    # 3. DEPLOY TO AWS EC2
-    - name: Deploy to EC2
-      uses: appleboy/ssh-action@v1.2.0
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ubuntu
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          docker pull ${{ secrets.DOCKER_USERNAME }}/mywebsite:latest
-          docker stop mywebsite || true
-          docker rm mywebsite || true
-          docker run -d -p 80:80 --name mywebsite \
-            --restart always \
-            ${{ secrets.DOCKER_USERNAME }}/mywebsite:latest
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+      run: |
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+    - name: Deploy to EC2 instances
+      run: |
+        for host in $EC2_HOSTS
+        do
+          ssh -o StrictHostKeyChecking=no $EC2_USER@$host "
+            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }} &&
+            docker pull ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest &&
+            docker stop app || true &&
+            docker rm app || true &&
+            docker run -d --name app -p 80:80 ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
+          "
+        done

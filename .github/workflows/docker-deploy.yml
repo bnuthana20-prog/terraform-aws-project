@@ -8,7 +8,6 @@ env:
   AWS_REGION: ap-south-1
   ECR_REPOSITORY: devops-app
   EC2_USER: ubuntu
-  EC2_HOSTS: "65.2.161.58 13.201.80.231 13.126.135.132" 
 
 jobs:
   build-and-deploy:
@@ -42,15 +41,17 @@ jobs:
         chmod 400 ~/.ssh/id_rsa
 
     - name: Deploy to EC2 instances
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
       run: |
-        for host in $EC2_HOSTS
+        IFS=',' read -ra HOSTS <<< "${{ secrets.EC2_HOSTS }}"
+        for host in "${HOSTS[@]}"
         do
           echo "Deploying to $host"
-          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$host "
-            aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }} &&
-            docker pull ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest &&
-            docker stop app || true &&
-            docker rm app || true &&
-            docker run -d --name app -p 80:80 ${{ steps.login-ecr.outputs.registry }}/$ECR_REPOSITORY:latest
-          "
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa $EC2_USER@$host \
+          "aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $ECR_REGISTRY && \
+          docker pull $ECR_REGISTRY/${{ env.ECR_REPOSITORY }}:latest && \
+          docker stop app || true && \
+          docker rm app || true && \
+          docker run -d --name app -p 80:80 $EC2_REGISTRY/${{ env.ECR_REPOSITORY }}:latest"
         done

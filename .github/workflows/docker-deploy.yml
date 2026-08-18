@@ -9,7 +9,7 @@ env:
   ECR_REPOSITORY: devops-app
   EC2_USER: ubuntu
   # PUT YOUR 3 EC2 PUBLIC IPs HERE
-  EC2_HOSTS: "18.60.123.45 18.61.234.56 18.62.345.67" 
+  EC2_HOSTS: "65.2.161.58     13.201.80.231   13.126.135.132"
 
 jobs:
   build-and-deploy:

@@ -48,25 +48,54 @@ resource "aws_security_group" "allow_ssh" {
   }
 }
 
-# 2. EC2 Instance
-resource "aws_instance" "web" {
-  count         = 3  # <-- this makes 3 copies
-  ami           = "ami-0f5ee92e2d63afc18" # Amazon Linux 2 in ap-south-1
-  instance_type = "t3.micro"
-  vpc_security_group_ids = [aws_security_group.allow_ssh.id]
-
-  # This runs on each server. count.index = 0, 1, 2
-  user_data = <<-EOF
-              #!/bin/bash
-              yum install -y httpd
-              systemctl start httpd
-              echo "<h1>This is Server ${count.index + 1}</h1>" > /var/www/html/index.html
-              EOF
-
-  tags = {
-    Name = "web-server-${count.index + 1}" # web-server-1, web-server-2, web-server-3
-  }
+# IAM Role so EC2 can pull from ECR
+resource "aws_iam_role" "ec2_role" {
+  name = "ec2-ecr-role"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = { Service = "ec2.amazonaws.com" }
+    }]
+  })
 }
-output "all_public_ips" {
-  value = aws_instance.web[*].public_ip  # [*] gets IPs from all 3 servers
+
+resource "aws_iam_role_policy_attachment" "ecr_read" {
+  role       = aws_iam_role.ec2_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
+resource "aws_iam_instance_profile" "ec2_profile" {
+  name = "ec2-profile"
+  role = aws_iam_role.ec2_role.name
+}
+
+# EC2 that runs your Docker container
+resource "aws_instance" "app" {
+  count                  = 3
+  ami                    = "ami-0f58b3f70d7d06c7a" # Ubuntu 22.04 ap-south-1
+  instance_type          = "t3.micro"
+  subnet_id              = aws_subnet.public[count.index % 2].id
+  iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
+  vpc_security_group_ids = [aws_security_group.ec2.id]
+
+  user_data = <<-EOF
+  #!/bin/bash
+  apt update -y
+  apt install docker.io awscli -y
+  systemctl start docker
+  systemctl enable docker
+
+  aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 717491933397.dkr.ecr.ap-south-1.amazonaws.com
+  docker run -d -p 80:80 --name webapp 717491933397.dkr.ecr.ap-south-1.amazonaws.com/my-webapp:latest
+  EOF
+
+  tags = { Name = "docker-ec2-${count.index + 1}" }
+}
+output "all_ec2_ips" {
+  value = aws_instance.app[*].public_ip  # [*] gets IPs from all 3 servers
+}
+output "alb_dns_name" {
+  value = aws_lb.main.dns_name
 }

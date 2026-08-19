@@ -35,7 +35,10 @@ jobs:
         do
           echo "Deploying to $host"
           ssh -o StrictHostKeyChecking=no -i cicd-key.pem ubuntu@$host << 'EOF'
-            sudo apt-get update -y && sudo apt-get install -y awscli
+            sudo apt-get update -y
+            sudo apt-get install -y docker.io awscli
+            sudo systemctl start docker
+            sudo usermod -aG docker ubuntu
             aws configure set region ap-south-1
             aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 717491933397.dkr.ecr.ap-south-1.amazonaws.com
             docker pull 717491933397.dkr.ecr.ap-south-1.amazonaws.com/devops-app:latest
@@ -43,4 +46,4 @@ jobs:
             docker rm app || true
             docker run -d --name app -p 80:80 717491933397.dkr.ecr.ap-south-1.amazonaws.com/devops-app:latest
           EOF
-        done
+        done  # <-- fixed here

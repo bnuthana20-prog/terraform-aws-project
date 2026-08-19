@@ -31,20 +31,20 @@ jobs:
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.EC2_HOSTS }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin $ECR_REGISTRY
-            docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest
-            docker stop app || true
-            docker rm app || true
+deploy:
+  needs: build-and-push
+  runs-on: ubuntu-latest
+  steps:
+    - name: Deploy to all EC2s
+      run: |
+        for host in $(echo ${{ secrets.EC2_HOSTS }} | tr ',' '\n')
+        do
+          echo "Deploying to $host"
+          ssh -o StrictHostKeyChecking=no -i <(echo "${{ secrets.EC2_SSH_KEY }}") ubuntu@$host "
+            aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin $ECR_REGISTRY &&
+            docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest &&
+            docker stop app || true &&
+            docker rm app || true &&
             docker run -d --name app -p 3000:3000 $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          "
+        done

@@ -1,11 +1,13 @@
 locals {
-  project_name = "web-app"
+  project_name   = "web-app"
   instance_count = 3
+  vpc_id         = "vpc-0481387c8b28dd203" # <-- YOUR DEFAULT VPC WHERE EC2S ARE
   common_tags = {
     Project = local.project_name
     Owner   = "Nuthana"
   }
 }
+
 terraform {
   required_providers {
     aws = {
@@ -19,10 +21,27 @@ provider "aws" {
   region = "ap-south-1"
 }
 
-# 1. Security Group - Allow SSH + HTTP
-resource "aws_security_group" "allow_ssh" {
-  name        = "allow_ssh"
-  description = "Allow SSH and HTTP"
+# Get default VPC subnets
+data "aws_subnets" "public" {
+  filter {
+    name   = "vpc-id"
+    values = [local.vpc_id]
+  }
+}
+
+# 1. Security Group for EC2 - Allow 3000 for ALB + SSH
+resource "aws_security_group" "ec2" {
+  name        = "ec2-sg"
+  description = "Allow 3000 from ALB"
+  vpc_id      = local.vpc_id
+
+  ingress {
+    description = "App port from ALB"
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] # for testing. Later change to ALB SG
+  }
 
   ingress {
     description = "SSH from anywhere"
@@ -32,8 +51,21 @@ resource "aws_security_group" "allow_ssh" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+# 2. Security Group for ALB - Allow 80
+resource "aws_security_group" "alb" {
+  name        = "alb-sg"
+  description = "Allow HTTP"
+  vpc_id      = local.vpc_id
+
   ingress {
-    description = "HTTP from anywhere"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
@@ -48,14 +80,14 @@ resource "aws_security_group" "allow_ssh" {
   }
 }
 
-# IAM Role so EC2 can pull from ECR
+# 3. IAM Role so EC2 can pull from ECR
 resource "aws_iam_role" "ec2_role" {
   name = "ec2-ecr-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Action = "sts:AssumeRole"
-      Effect = "Allow"
+      Action    = "sts:AssumeRole"
+      Effect    = "Allow"
       Principal = { Service = "ec2.amazonaws.com" }
     }]
   })
@@ -71,12 +103,51 @@ resource "aws_iam_instance_profile" "ec2_profile" {
   role = aws_iam_role.ec2_role.name
 }
 
-# EC2 that runs your Docker container
+# 4. ALB
+resource "aws_lb" "main" {
+  name               = "webapp-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb.id]
+  subnets            = data.aws_subnets.public.ids
+}
+
+# 5. Target Group - PORT 3000
+resource "aws_lb_target_group" "app" {
+  name        = "webapp-tg"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = local.vpc_id
+  target_type = "instance"
+
+  health_check {
+    path                = "/"
+    port                = "3000"
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    timeout             = 5
+    interval            = 30
+  }
+}
+
+# 6. Listener
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.app.arn
+  }
+}
+
+# 7. EC2 that runs your Docker container on port 3000
 resource "aws_instance" "app" {
   count                  = 3
   ami                    = "ami-0f58b3f70d7d06c7a" # Ubuntu 22.04 ap-south-1
   instance_type          = "t3.micro"
-  subnet_id              = aws_subnet.public[count.index % 2].id
+  subnet_id              = data.aws_subnets.public.ids[count.index % length(data.aws_subnets.public.ids)]
   iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
   vpc_security_group_ids = [aws_security_group.ec2.id]
 
@@ -88,13 +159,14 @@ resource "aws_instance" "app" {
   systemctl enable docker
 
   aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 717491933397.dkr.ecr.ap-south-1.amazonaws.com
-  docker run -d -p 80:80 --name webapp 717491933397.dkr.ecr.ap-south-1.amazonaws.com/my-webapp:latest
+  docker run -d -p 3000:80 --name webapp 717491933397.dkr.ecr.ap-south-1.amazonaws.com/my-webapp:latest
   EOF
 
-  tags = { Name = "docker-ec2-${count.index + 1}" }
+  tags = merge(local.common_tags, { Name = "docker-ec2-${count.index + 1}" })
 }
+
 output "all_ec2_ips" {
-  value = aws_instance.app[*].public_ip  # [*] gets IPs from all 3 servers
+  value = aws_instance.app[*].public_ip
 }
 output "alb_dns_name" {
   value = aws_lb.main.dns_name

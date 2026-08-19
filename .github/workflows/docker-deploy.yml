@@ -12,6 +12,8 @@ jobs:
   build-and-push:
     name: Build and Push to ECR
     runs-on: ubuntu-latest
+    outputs: # <-- ADD THIS to pass data to next job
+      ecr_registry: ${{ steps.login-ecr.outputs.registry }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -24,7 +26,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        id: login-ecr
+        id: login-ecr # <-- This ID is important
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build, Tag, and Push Docker Image
@@ -36,12 +38,13 @@ jobs:
 
   deploy:
     name: Deploy to EC2
-    needs: build-and-push
+    needs: build-and-push # <-- Wait for build to finish
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to all EC2s via SSH
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          # FIX: Get registry from previous job output
+          ECR_REGISTRY: ${{ needs.build-and-push.outputs.ecr_registry }} 
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
         run: |
           # 1. Save SSH Key

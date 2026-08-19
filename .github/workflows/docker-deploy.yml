@@ -1,0 +1,76 @@
+name: Deploy to AWS EC2
+
+on:
+  push:
+    branches: [ "main" ]
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+
+jobs:
+  build-and-push:
+    name: Build and Push to ECR
+    runs-on: ubuntu-latest
+    outputs: # <-- ADD THIS to pass data to next job
+      ecr_registry: ${{ steps.login-ecr.outputs.registry }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr # <-- This ID is important
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, Tag, and Push Docker Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+  deploy:
+    name: Deploy to EC2
+    needs: build-and-push # <-- Wait for build to finish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to all EC2s via SSH
+        env:
+          # FIX: Get registry from previous job output
+          ECR_REGISTRY: ${{ needs.build-and-push.outputs.ecr_registry }} 
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+        run: |
+          # 1. Save SSH Key
+          echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
+          chmod 400 key.pem
+          
+          # 2. Loop through all hosts. Handles spaces, commas, newlines
+          for SERVER in $(echo "${{ secrets.EC2_HOSTS }}" | tr ',' ' '); do
+            SERVER=$(echo "$SERVER" | xargs)  
+            if [ -z "$SERVER" ]; then
+              continue
+            fi
+            echo "========================================="
+            echo ">>> Deploying to $SERVER"
+            echo "========================================="
+            
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 -i key.pem ubuntu@$SERVER "
+              # Login to ECR
+              aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $ECR_REGISTRY &&
+              # Pull new image
+              docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest &&
+              # Stop and remove old container
+              docker stop app || true && docker rm app || true &&
+              # Run new container on port 80
+              docker run -d --name app --restart always -p 80:80 $ECR_REGISTRY/$ECR_REPOSITORY:latest
+            "
+          done
+          rm key.pem
+          echo "Deployment Complete to all servers!"

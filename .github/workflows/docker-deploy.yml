@@ -39,7 +39,7 @@ jobs:
         echo "${{ secrets.EC2_SSH_KEY }}" > cicd-key.pem
         chmod 600 cicd-key.pem
 
-        for host in 13.201.134.208 13.233.199.71 65.2.63.175
+        for host in 3.110.29.60 15.207.108.97 52.66.127.250
 
         do
           echo "Deploying to $host"

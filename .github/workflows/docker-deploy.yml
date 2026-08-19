@@ -31,28 +31,30 @@ jobs:
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
-
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-      - name: Deploy to all EC2s
-        env:
-          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
-        run: |
-          echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
-          chmod 600 key.pem
-          
-          for host in $(echo ${{ secrets.EC2_HOSTS }} | tr ',' '\n')
-          do
-            echo "Deploying to $host"
-            ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@$host "
-              aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin $ECR_REGISTRY &&
-              docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest &&
-              docker stop app || true &&
-              docker rm app || true &&
-              docker run -d --name app -p 3000:3000 $ECR_REGISTRY/$ECR_REPOSITORY:latest
-            "
-          done
-          rm key.pem
+deploy:
+  needs: build-and-push
+  runs-on: ubuntu-latest
+  steps:
+    - name: Deploy to all EC2s
+      env:
+        ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+        ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+      run: |
+        echo "${{ secrets.EC2_SSH_KEY }}" > key.pem
+        chmod 400 key.pem
+        # Trim and validate each host
+        for SERVER in ${{ secrets.EC2_HOSTS }}
+        do
+          SERVER=$(echo "$SERVER" | xargs)  # Remove leading/trailing whitespace
+          if [ -z "$SERVER" ]; then
+            continue
+          fi
+          echo "Deploying to $SERVER"
+          ssh -o StrictHostKeyChecking=no -i key.pem ubuntu@$SERVER "
+            aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin $ECR_REGISTRY &&
+            docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest &&
+            docker stop app || true && docker rm app || true &&
+            docker run -d --name app -p 3000:3000 $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          "
+        done
+        rm key.pem

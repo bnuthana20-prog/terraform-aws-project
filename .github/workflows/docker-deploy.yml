@@ -13,7 +13,8 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout code
+      uses: actions/checkout@v4
 
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v4
@@ -33,22 +34,23 @@ jobs:
         docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
         docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-- name: Deploy to EC2
-  run: |
-    echo "${{ secrets.EC2_SSH_KEY }}" > cicd-key.pem
-    chmod 600 cicd-key.pem
+    - name: Deploy to EC2
+      run: |
+        echo "${{ secrets.EC2_SSH_KEY }}" > cicd-key.pem
+        chmod 600 cicd-key.pem
 
-    for host in 65.0.122.7 3.108.64.26 13.233.155.3
-    do
-      echo "Deploying to $host"
-      ssh -o StrictHostKeyChecking=no -i cicd-key.pem ubuntu@$host << 'EOF'
-        sudo apt-get update -y && sudo apt-get install -y docker.io
-        sudo snap install aws-cli --classic
-        sudo systemctl start docker
-        aws ecr get-login-password --region ap-south-1 | sudo docker login --username AWS --password-stdin 717491933397.dkr.ecr.ap-south-1.amazonaws.com
-        sudo docker pull 717491933397.dkr.ecr.ap-south-1.amazonaws.com/devops-app:latest
-        sudo docker stop app || true
-        sudo docker rm app || true
-        sudo docker run -d --name app -p 80:80 717491933397.dkr.ecr.ap-south-1.amazonaws.com/devops-app:latest
-      EOF
-    done
+        for host in 65.0.122.7 3.108.64.26 13.233.155.3
+        do
+          echo "Deploying to $host"
+          ssh -o StrictHostKeyChecking=no -i cicd-key.pem ubuntu@$host << 'EOF'
+            sudo apt-get update -y && sudo apt-get install -y docker.io
+            sudo snap install aws-cli --classic
+            sudo systemctl start docker
+            sudo systemctl enable docker
+            aws ecr get-login-password --region ap-south-1 | sudo docker login --username AWS --password-stdin 717491933397.dkr.ecr.ap-south-1.amazonaws.com
+            sudo docker pull 717491933397.dkr.ecr.ap-south-1.amazonaws.com/devops-app:latest
+            sudo docker stop app || true
+            sudo docker rm app || true
+            sudo docker run -d --name app --restart always -p 80:80 717491933397.dkr.ecr.ap-south-1.amazonaws.com/devops-app:latest
+          EOF
+        done

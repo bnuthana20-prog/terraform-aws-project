@@ -1,16 +1,46 @@
-- name: Deploy to EC2
-  run: |
-    echo "${{ secrets.EC2_SSH_KEY }}" > cicd-key.pem
-    chmod 600 cicd-key.pem
+name: build-and-deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
     
-    for host in 65.0.122.7 3.108.64.26 13.233.155.3
-    do
-      echo "Deploying to $host"
-      ssh -o StrictHostKeyChecking=no -i cicd-key.pem ubuntu@$host << 'EOF'
-        aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 717491933397.dkr.ecr.ap-south-1.amazonaws.com
-        docker pull 717491933397.dkr.ecr.ap-south-1.amazonaws.com/devops-app:latest
-        docker stop app || true
-        docker rm app || true
-        docker run -d --name app -p 80:80 717491933397.dkr.ecr.ap-south-1.amazonaws.com/devops-app:latest
-      EOF
-    done
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ap-south-1
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v2
+
+    - name: Build and Push Docker image
+      run: |
+        docker build -t ${{ steps.login-ecr.outputs.registry }}/devops-app:latest .
+        docker push ${{ steps.login-ecr.outputs.registry }}/devops-app:latest
+
+    - name: Deploy to EC2
+      run: |
+        echo "${{ secrets.EC2_SSH_KEY }}" > cicd-key.pem
+        chmod 600 cicd-key.pem
+        
+        for host in 65.0.122.7 3.108.64.26 13.233.155.3
+        do
+          echo "Deploying to $host"
+          ssh -o StrictHostKeyChecking=no -i cicd-key.pem ubuntu@$host << 'EOF'
+            sudo apt-get update -y && sudo apt-get install -y awscli
+            aws configure set region ap-south-1
+            aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 717491933397.dkr.ecr.ap-south-1.amazonaws.com
+            docker pull 717491933397.dkr.ecr.ap-south-1.amazonaws.com/devops-app:latest
+            docker stop app || true
+            docker rm app || true
+            docker run -d --name app -p 80:80 717491933397.dkr.ecr.ap-south-1.amazonaws.com/devops-app:latest
+          EOF
+        done

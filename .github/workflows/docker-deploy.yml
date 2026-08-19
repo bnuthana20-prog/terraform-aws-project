@@ -1,4 +1,4 @@
-name: build-and-deploy
+name: Deploy to AWS EC2
 
 on:
   push:
@@ -6,52 +6,45 @@ on:
 
 env:
   AWS_REGION: ap-south-1
-  ECR_REPOSITORY: devops-app
-  AWS_ACCOUNT_ID: 717491933397
+  ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+  ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
 
 jobs:
-  build-and-deploy:
+  build-and-push:
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Configure AWS credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ env.AWS_REGION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
 
-    - name: Login to Amazon ECR
-      id: login-ecr
-      uses: aws-actions/amazon-ecr-login@v2
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-    - name: Build, tag, and push image to Amazon ECR
-      env:
-        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-      run: |
-        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
-        docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+      - name: Build and Push Docker Image
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-    - name: Deploy to EC2
-      run: |
-        echo "${{ secrets.EC2_SSH_KEY }}" > cicd-key.pem
-        chmod 600 cicd-key.pem
-
-        for host in 3.110.29.60 15.207.108.97 52.66.127.250
-
-        do
-          echo "Deploying to $host"
-          ssh -o StrictHostKeyChecking=no -i cicd-key.pem ubuntu@$host << 'EOF'
-            sudo apt-get update -y && sudo apt-get install -y docker.io
-            sudo snap install aws-cli --classic
-            sudo systemctl start docker
-            sudo systemctl enable docker
-            aws ecr get-login-password --region ap-south-1 | sudo docker login --username AWS --password-stdin 717491933397.dkr.ecr.ap-south-1.amazonaws.com
-            sudo docker pull 717491933397.dkr.ecr.ap-south-1.amazonaws.com/devops-app:latest
-            sudo docker stop app || true
-            sudo docker rm app || true
-            sudo docker run -d --name app --restart always -p 80:80 717491933397.dkr.ecr.ap-south-1.amazonaws.com/devops-app:latest
-          EOF
-        done
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOSTS }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin $ECR_REGISTRY
+            docker pull $ECR_REGISTRY/$ECR_REPOSITORY:latest
+            docker stop app || true
+            docker rm app || true
+            docker run -d --name app -p 3000:3000 $ECR_REGISTRY/$ECR_REPOSITORY:latest

@@ -128,6 +128,9 @@ resource "aws_lb_target_group" "app" {
     timeout             = 5
     interval            = 30
   }
+lifecycle {
+  create_before_destroy = true
+  }
 }
 
 # 6. Listener

@@ -36,12 +36,12 @@ resource "aws_security_group" "ec2" {
   vpc_id      = local.vpc_id
 
   ingress {
-    description = "App port from ALB"
-    from_port   = 3000
-    to_port     = 3000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # for testing. Later change to ALB SG
-  }
+  description     = "App port from ALB"
+  from_port       = 3000
+  to_port         = 3000
+  protocol        = "tcp"
+  security_groups = [aws_security_group.alb.id]  
+}
 
   ingress {
     description = "SSH from anywhere"
@@ -151,16 +151,20 @@ resource "aws_instance" "app" {
   iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
   vpc_security_group_ids = [aws_security_group.ec2.id]
 
-  user_data = <<-EOF
-              #!/bin/bash
-              apt update -y
-              apt install docker.io awscli -y
-              systemctl start docker
-              systemctl enable docker
-              sleep 10
-              aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 717491933397.dkr.ecr.ap-south-1.amazonaws.com
-              docker run -d -p 80:3000 --name webapp --restart always 717491933397.dkr.ecr.ap-south-1.amazonaws.com/my-webapp:latest
-              EOF  # <- END HERE. Must be at start of line, no spaces
+ user_data = <<-EOF
+            #!/bin/bash
+            apt update -y
+            apt install docker.io awscli -y
+            systemctl start docker
+            systemctl enable docker
+            
+            # Wait for docker to be ready
+            until systemctl is-active --quiet docker; do sleep 2; done
+            
+            sleep 15
+            aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 717491933397.dkr.ecr.ap-south-1.amazonaws.com
+            docker run -d -p 80:3000 --name webapp --restart always 717491933397.dkr.ecr.ap-south-1.amazonaws.com/my-webapp:latest
+            EOF
 
   tags = merge(local.common_tags, { Name = "docker-ec2-${count.index + 1}" })
 } # <- CLOSE aws_instance HERE

@@ -114,7 +114,7 @@ resource "aws_lb" "main" {
 
 # 5. Target Group - PORT 3000
 resource "aws_lb_target_group" "app" {
-  name        = "webapp-tg"
+  name        = "webapp-tg-v2"
   port        = 3000
   protocol    = "HTTP"
   vpc_id      = local.vpc_id

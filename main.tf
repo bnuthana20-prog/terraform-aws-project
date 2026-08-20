@@ -170,7 +170,7 @@ resource "aws_lb_target_group_attachment" "app_attach" {
   count            = length(aws_instance.app)
   target_group_arn = aws_lb_target_group.app.arn
   target_id        = aws_instance.app[count.index].id # <- This makes output match
-  port             = 80
+  port             = 3000
 }
 
 # 8. Outputs

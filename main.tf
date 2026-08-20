@@ -157,9 +157,17 @@ resource "aws_instance" "app" {
   apt install docker.io awscli -y
   systemctl start docker
   systemctl enable docker
+  sleep 10
 
   aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 717491933397.dkr.ecr.ap-south-1.amazonaws.com
-  docker run -d -p 3000:80 --name webapp 717491933397.dkr.ecr.ap-south-1.amazonaws.com/my-webapp:latest
+  docker run -d -p 80:3000 --name webapp 717491933397.dkr.ecr.ap-south-1.amazonaws.com/my-webapp:latest
+# 7.1 Attach all instances to Target Group
+resource "aws_lb_target_group_attachment" "app_attach" {
+  count            = length(aws_instance.app)
+  target_group_arn = aws_lb_target_group.app.arn
+  target_id        = aws_instance.app[count.index].id  # <-- This makes output match
+  port             = 80
+}
   EOF
 
   tags = merge(local.common_tags, { Name = "docker-ec2-${count.index + 1}" })

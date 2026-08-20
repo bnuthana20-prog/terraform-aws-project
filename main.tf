@@ -174,9 +174,9 @@ resource "aws_instance" "app" {
 
 # 7.1 Attach all instances to Target Group - OUTSIDE aws_instance
 resource "aws_lb_target_group_attachment" "app_attach" {
-  count            = length(aws_instance.app)
+  count            = length(local_instance.app)
   target_group_arn = aws_lb_target_group.app.arn
-  target_id        = aws_instance.app[count.index].id # <- This makes output match
+  target_id        = local_instance.ids[count.index]
   port             = 3000
 }
 

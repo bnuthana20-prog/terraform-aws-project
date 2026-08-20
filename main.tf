@@ -144,38 +144,44 @@ resource "aws_lb_listener" "http" {
 
 # 7. EC2 that runs your Docker container on port 3000
 resource "aws_instance" "app" {
-  count                  = 3
-  ami                    = "ami-0f58b3f70d7d06c7a" # Ubuntu 22.04 ap-south-1
-  instance_type          = "t3.micro"
-  subnet_id              = data.aws_subnets.public.ids[count.index % length(data.aws_subnets.public.ids)]
-  iam_instance_profile   = aws_iam_instance_profile.ec2_profile.name
+  count         = 3
+  ami           = "ami-0f58b3f70d7d06c7a" 
+  instance_type = "t3.micro"
+  subnet_id     = data.aws_subnets.public.ids[count.index % length(data.aws_subnets.public.ids)]
+  iam_instance_profile = aws_iam_instance_profile.ec2_profile.name
   vpc_security_group_ids = [aws_security_group.ec2.id]
 
   user_data = <<-EOF
-  #!/bin/bash
-  apt update -y
-  apt install docker.io awscli -y
-  systemctl start docker
-  systemctl enable docker
-  sleep 10
+              #!/bin/bash
+              apt update -y
+              apt install docker.io awscli -y
+              systemctl start docker
+              systemctl enable docker
+              sleep 10
+              aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 717491933397.dkr.ecr.ap-south-1.amazonaws.com
+              docker run -d -p 80:3000 --name webapp --restart always 717491933397.dkr.ecr.ap-south-1.amazonaws.com/my-webapp:latest
+              EOF  # <- END HERE. Must be at start of line, no spaces
 
-  aws ecr get-login-password --region ap-south-1 | docker login --username AWS --password-stdin 717491933397.dkr.ecr.ap-south-1.amazonaws.com
-  docker run -d -p 80:3000 --name webapp 717491933397.dkr.ecr.ap-south-1.amazonaws.com/my-webapp:latest
-# 7.1 Attach all instances to Target Group
+  tags = merge(local.common_tags, { Name = "docker-ec2-${count.index + 1}" })
+} # <- CLOSE aws_instance HERE
+
+# 7.1 Attach all instances to Target Group - OUTSIDE aws_instance
 resource "aws_lb_target_group_attachment" "app_attach" {
   count            = length(aws_instance.app)
   target_group_arn = aws_lb_target_group.app.arn
-  target_id        = aws_instance.app[count.index].id  # <-- This makes output match
+  target_id        = aws_instance.app[count.index].id # <- This makes output match
   port             = 80
 }
-  EOF
 
-  tags = merge(local.common_tags, { Name = "docker-ec2-${count.index + 1}" })
+# 8. Outputs
+output "all_ec2_ids" {
+  value = aws_instance.app[*].id  # Added this to match instance id
 }
 
 output "all_ec2_ips" {
   value = aws_instance.app[*].public_ip
 }
+
 output "alb_dns_name" {
   value = aws_lb.main.dns_name
 }

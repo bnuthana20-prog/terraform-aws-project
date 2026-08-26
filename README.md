@@ -14,7 +14,7 @@ Hands-on Infrastructure as Code project to provision AWS resources using Terrafo
 | **AWS Project** | Built full VPC + EC2 stack. Fixed "Network is unreachable" error |
 | **Revision** | Revised state file, fmt, validate, best practices |
 
-## 🚀 Day 5 Project: VPC + EC2 + Nginx Deployment
+## 🚀 Project: VPC + EC2 + Nginx Deployment
 **What this project does:**
 1. Creates custom VPC with Public Subnet
 2. Sets up Internet Gateway + Route Table for internet access  

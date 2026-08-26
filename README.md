@@ -2,7 +2,7 @@
 
 Hands-on Infrastructure as Code project to provision AWS resources using Terraform.
 
-## 📚 8-Hour Terraform Module - Completed
+##  Terraform Module - Completed
 | Topic | What We Did |
 | --- | --- |
 | **Infrastructure as Code** | Learned IaC workflow: `init` → `plan` → `apply` → `destroy` |

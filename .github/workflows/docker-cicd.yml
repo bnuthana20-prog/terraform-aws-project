@@ -1,19 +1,18 @@
-name: Day 6 CI/CD Pipeline
+name: Docker CI/CD
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
 
 jobs:
   build-test-push-deploy:
     runs-on: ubuntu-latest
+    
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Set up Docker
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
+      - name: Login to DockerHub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -21,18 +20,18 @@ jobs:
 
       - name: BUILD
         run: |
-          docker build -t bnuthana/my-first-app:${{ github.sha }} -t bnuthana/my-first-app:latest .
+          docker build -t bnuthana/my-first-app:latest .
 
       - name: TEST
         run: |
+          docker rm -f test-app || true
           docker run -d -p 8080:80 --name test-app bnuthana/my-first-app:latest
           sleep 10
           curl -f http://localhost:8080
           docker rm -f test-app
 
-      - name: PUSH to Docker Hub
+      - name: PUSH
         run: |
-          docker push bnuthana/my-first-app:${{ github.sha }}
           docker push bnuthana/my-first-app:latest
 
       - name: DEPLOY to EC2
@@ -42,7 +41,6 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            docker rm -f my-first-app || true
             docker pull bnuthana/my-first-app:latest
-            docker stop my-app || true
-            docker rm my-app || true
-            docker run -d -p 8080:80 --name my-app --restart always bnuthana/my-first-app:latest
+            docker run -d -p 80:80 --name my-first-app --restart always bnuthana/my-first-app:latest

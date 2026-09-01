@@ -1,45 +1,24 @@
-name: CI Pipeline - Build Test Push Deploy
-
-on:
-  push:
-    branches: [ main ]
-
-jobs:
-  build-test-deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Build Docker Image
-        run: |
-          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/terraform-aws-project:latest .
+- name: Deploy to EC2
+  uses: appleboy/ssh-action@v1.0.3
+  with:
+    host: ${{ secrets.EC2_HOST }}
+    username: ${{ secrets.EC2_USER }}
+    key: ${{ secrets.EC2_SSH_KEY }}
+    script: |
+      # Force remove ANY container on port 80
+      docker ps -q --filter "publish=80" | xargs -r docker rm -f || true
+      docker rm -f my-app || true
       
-      - name: Test Docker Image
-        run: |
-          docker rm -f test-app || true
-          docker run -d -p 8080:80 --name test-app ${{ secrets.DOCKERHUB_USERNAME }}/terraform-aws-project:latest
-          sleep 10
-          curl -f http://localhost:8080 || (docker logs test-app && exit 1)
-          docker rm -f test-app || true
-
-      - name: Login to DockerHub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Push to DockerHub
-        run: |
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/terraform-aws-project:latest
-
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/terraform-aws-project:latest
-            docker rm -f my-app || true
-            docker run -d -p 80:80 --name my-app --restart always ${{ secrets.DOCKERHUB_USERNAME }}/terraform-aws-project:latest
+      # Kill if nginx running directly on EC2
+      sudo systemctl stop nginx || true
+      sudo fuser -k 80/tcp || true
+      
+      sleep 3
+      
+      # Pull and Run
+      docker pull ${{ secrets.DOCKERHUB_USERNAME }}/terraform-aws-project:latest
+      docker run -d -p 80:80 --name my-app --restart always ${{ secrets.DOCKERHUB_USERNAME }}/terraform-aws-project:latest
+      
+      sleep 2
+      docker ps
+      curl -f http://localhost || docker logs my-app
